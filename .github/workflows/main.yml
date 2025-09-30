@@ -39,29 +39,38 @@ jobs:
           
           brew install tiger-vnc
           
-          # *** KRİTİK DÜZELTME: Sabit PATH Kullanımı ***
-          
-          # Homebrew'in ikili dosyalarının standart yolu (Apple Silicon)
+          # 3. VNC dosyalarını kopyalama (KRİTİK DÜZELTME: PATH ve İzin sorunu çözülüyor)
           HOMEBREW_BIN_PATH="/opt/homebrew/bin"
+          USER_BIN_PATH="/usr/local/bin" 
           
-          # Komutların tam yollarını manuel olarak belirle
-          VNCPASSWD_CMD="$HOMEBREW_BIN_PATH/vncpasswd"
-          XVNC_CMD="$HOMEBREW_BIN_PATH/Xvnc"
+          echo "Copying VNC binaries to /usr/local/bin for access..."
           
-          # 3. VNC şifresini ayarlar (TAM SABİT YOL kullanılıyor)
+          # vncpasswd ve Xvnc dosyalarını /usr/local/bin'e kopyala
+          sudo cp $HOMEBREW_BIN_PATH/vncpasswd $USER_BIN_PATH/
+          sudo cp $HOMEBREW_BIN_PATH/Xvnc $USER_BIN_PATH/
+          
+          # Dosyaların herkes tarafından çalıştırılabilir olduğundan emin ol
+          sudo chmod +x $USER_BIN_PATH/vncpasswd
+          sudo chmod +x $USER_BIN_PATH/Xvnc
+
+          # Komutların tam yolları /usr/local/bin altında
+          VNCPASSWD_CMD="$USER_BIN_PATH/vncpasswd"
+          XVNC_CMD="$USER_BIN_PATH/Xvnc"
+          
+          # 4. VNC şifresini ayarlar
           echo "Setting VNC password file for $USERNAME."
           
-          # RDP kullanıcısı altında vncpasswd komutunu tam yolunu kullanarak çalıştır
+          # RDP kullanıcısı altında vncpasswd komutunu çalıştır
           sudo su - $USERNAME -c "
             mkdir -p ~/.vnc
             echo '$PASSWORD' | $VNCPASSWD_CMD -f > ~/.vnc/passwd
             chmod 600 ~/.vnc/passwd
           "
           
-          # 4. TigerVNC Sunucusunu Başlatma (TAM SABİT YOL kullanılıyor)
+          # 5. TigerVNC Sunucusunu Başlatma (Bağlantı Reddini de önler)
           echo "Starting TigerVNC server on display :1 (port 5901)."
           
-          # RDP kullanıcısı altında Xvnc komutunu tam yolunu kullanarak başlat
+          # RDP kullanıcısı altında Xvnc komutunu başlat
           sudo su - $USERNAME -c "
             $XVNC_CMD :1 -geometry 1920x1080 -depth 24 -rfbauth /Users/$USERNAME/.vnc/passwd -desktop 'GitHub Runner' &
           "
