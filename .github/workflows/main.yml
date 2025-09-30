@@ -1,23 +1,11 @@
-name: macOS Remote Desktop (VNC via Tailscale)
-
-on:
-  # İş akışını GitHub arayüzünden manuel olarak başlatmanızı sağlar
-  workflow_dispatch:
-
-jobs:
-  secure-vnc:
-    runs-on: macos-latest 
-    timeout-minutes: 3600 
-
-    steps:
-      - name: Configure User and Install TigerVNC
+- name: Configure User and Install TigerVNC
         run: |
           USERNAME="RDP"
           PASSWORD="Ehe.1234" 
           
           echo "Setting up user '$USERNAME' with password '$PASSWORD'."
           
-          # 1. Kullanıcıyı oluşturma
+          # 1. Kullanıcıyı oluşturma (Bu kısım aynı kalacak)
           LAST_ID=$(dscl . list /Users UniqueID | awk '{print $2}' | sort -n | tail -1)
           NEW_ID=$((LAST_ID + 1))
           
@@ -32,24 +20,26 @@ jobs:
           sudo chown $USERNAME:staff /Users/$USERNAME
           sudo dscl . append /Groups/admin GroupMembership $USERNAME
           
-          # 2. TigerVNC kurma (Hata Düzeltildi: tiger-vnc)
+          # 2. TigerVNC kurma
           echo "Installing TigerVNC Server (Xvnc) to avoid black screen issue..."
           export PATH="/opt/homebrew/bin:$PATH" 
           export PATH="/usr/local/bin:$PATH"
           
-          # brew install tiger-vnc (doğru isim)
           brew install tiger-vnc
           
-          # 3. VNC şifresini ayarlar
-          mkdir -p /Users/$USERNAME/.vnc
-          echo "$PASSWORD" | vncpasswd -f > /Users/$USERNAME/.vnc/passwd
-          sudo chown $USERNAME:staff /Users/$USERNAME/.vnc/passwd
-          sudo chmod 600 /Users/$USERNAME/.vnc/passwd
+          # 3. VNC şifresini TigerVNC için ayarlar (DÜZELTİLDİ: RDP kullanıcısı olarak çalıştırıldı)
+          echo "Setting VNC password file for $USERNAME."
+          
+          # Tüm vncpasswd ve mkdir işlemlerini RDP kullanıcısı altında çalıştır
+          sudo su - $USERNAME -c "
+            mkdir -p ~/.vnc
+            echo '$PASSWORD' | vncpasswd -f > ~/.vnc/passwd
+            chmod 600 ~/.vnc/passwd
+          "
           
           # 4. TigerVNC Sunucusunu Başlatma (Sanal Masaüstü Oturumu)
           echo "Starting TigerVNC server on display :1 (port 5901)."
           
-          # Xvnc'nin tam yolu Homebrew tarafından otomatik olarak PATH'e eklenir, ancak yine de tam yol kontrolü ekleyelim.
           Xvnc_CMD=$(command -v Xvnc || echo "/opt/homebrew/bin/Xvnc")
           
           # Xvnc'yi belirtilen kullanıcı (RDP) altında başlat
@@ -59,70 +49,3 @@ jobs:
           
           echo "VNC Server (TigerVNC) is running on port 5901."
           echo "RDP_CREDS=User: $USERNAME | Password: $PASSWORD" >> $GITHUB_ENV
-          
-      - name: Install Tailscale and Start Service
-        run: |
-          export PATH="/opt/homebrew/bin:$PATH" 
-          export PATH="/usr/local/bin:$PATH"
-          
-          if ! brew install tailscale; then
-              echo "Tailscale kurulumu başarısız oldu."
-              exit 1
-          fi
-
-          echo "Starting tailscaled service..."
-          sudo tailscaled &
-          sleep 5
-
-      - name: Establish Tailscale Connection
-        env:
-          TAILSCALE_AUTH_KEY: ${{ secrets.TAILSCALE_AUTH_KEY }} # Secret'ı ENV'ye taşı
-        run: |
-          export PATH="/opt/homebrew/bin:$PATH" 
-          export PATH="/usr/local/bin:$PATH"
-          
-          echo "Connecting to Tailscale network..."
-          # Authkey'i ENV'den kullan
-          tailscale up --authkey=$TAILSCALE_AUTH_KEY --hostname=gh-macos-tigervnc-$GITHUB_RUN_ID
-          
-          # IP almasını bekleme
-          TS_IP=""
-          for i in {1..15}; do
-              TS_IP=$(tailscale ip -4 2>/dev/null)
-              if [ -n "$TS_IP" ]; then
-                  break
-              fi
-              sleep 4
-          done
-          
-          if [ -z "$TS_IP" ]; then
-              echo "Tailscale IP adresi alınamadı. İşlem başarısız."
-              exit 1
-          fi
-          
-          echo "TAILSCALE_IP=$TS_IP" >> $GITHUB_ENV
-      
-      - name: Maintain Connection and Display Info
-        run: |
-          echo "
-          
-          ==================================
-              MAC GRAFİK ARAYÜZÜ (TIGER VNC) ERİŞİMİ
-          ==================================
-          
-          Adres (Tailscale IP): $TAILSCALE_IP
-          VNC Portu: 5901
-          VNC Şifresi: Ehe.1234
-          
-          BAĞLANTI ŞEKLİ: Windows'ta RealVNC Viewer veya TigerVNC Viewer
-          
-          1. Adres olarak: $TAILSCALE_IP:5901 girin.
-          2. Sadece VNC şifresi istendiğinde: Ehe.1234 kullanın.
-          
-          ==================================
-          "
-          # Çalıştırıcıyı aktif tutmak için uzun süre döngüde kal
-          while true; do
-              echo "[$(date)] VNC Erişimi Aktif. İş akışını sonlandırmak için manuel olarak iptal edin."
-              sleep 300
-          done
