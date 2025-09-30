@@ -1,12 +1,11 @@
 name: macOS Remote Desktop (VNC via Tailscale)
 
 on:
-  # İş akışını GitHub arayüzünden manuel olarak başlatmanızı sağlar
   workflow_dispatch:
 
 jobs:
   secure-vnc:
-    runs-on: macos-13 # <--- KRİTİK DEĞİŞİKLİK: Daha eski, daha kararlı runner'ı dene
+    runs-on: macos-13 # VNC için daha kararlı bir macOS sürümü
     timeout-minutes: 3600 
 
     steps:
@@ -34,16 +33,25 @@ jobs:
           
           # 2. TigerVNC kurma
           echo "Installing TigerVNC Server (Xvnc) to avoid black screen issue..."
-          export PATH="/opt/homebrew/bin:$PATH" 
-          export PATH="/usr/local/bin:$PATH"
+          # PATH'e her iki Homebrew yolu da ekleniyor
+          export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH" 
           
           brew install tiger-vnc
           
-          # KRİTİK DÜZELTME: Kopyalama hatasını atlamak için Cellar yolunu doğrudan bul
-          TIGER_VNC_BIN_DIR=$(find /opt/homebrew/Cellar/tiger-vnc/ -maxdepth 2 -type d -name "bin" | head -n 1)
+          # KRİTİK DÜZELTME: Homebrew'un iki olası Cellar yolunu da ara (Apple Silicon ve Intel)
+          echo "Attempting to find VNC binaries in two possible Homebrew Cellar paths..."
+          TIGER_VNC_BIN_DIR=$(
+            find /opt/homebrew/Cellar/tiger-vnc/ -maxdepth 2 -type d -name "bin" 2>/dev/null | head -n 1
+          )
           
           if [ -z "$TIGER_VNC_BIN_DIR" ]; then
-              echo "HATA: TigerVNC ikili dosyaları için Cellar dizini bulunamadı. Kurulum hatası."
+             TIGER_VNC_BIN_DIR=$(
+                find /usr/local/Cellar/tiger-vnc/ -maxdepth 2 -type d -name "bin" 2>/dev/null | head -n 1
+             )
+          fi
+
+          if [ -z "$TIGER_VNC_BIN_DIR" ]; then
+              echo "HATA: TigerVNC ikili dosyaları Cellar dizinlerinde bulunamadı. Kurulum hatası."
               exit 1
           fi
           
@@ -55,7 +63,6 @@ jobs:
           # 3. VNC şifresini ayarlar
           echo "Setting VNC password file for $USERNAME."
           
-          # RDP kullanıcısı altında vncpasswd komutunu Cellar yolundan çalıştır
           sudo su - $USERNAME -c "
             mkdir -p ~/.vnc
             echo '$PASSWORD' | $VNCPASSWD_CMD -f > ~/.vnc/passwd
@@ -65,7 +72,7 @@ jobs:
           # 4. TigerVNC Sunucusunu Başlatma
           echo "Starting TigerVNC server on display :1 (port 5901)."
           
-          # RDP kullanıcısı altında Xvnc komutunu Cellar yolundan başlat
+          # Xvnc komutunu doğrudan Cellar yolu üzerinden başlat
           sudo su - $USERNAME -c "
             $XVNC_CMD :1 -geometry 1920x1080 -depth 24 -rfbauth /Users/$USERNAME/.vnc/passwd -desktop 'GitHub Runner' &
           "
@@ -77,8 +84,7 @@ jobs:
           
       - name: Install Tailscale and Start Service
         run: |
-          export PATH="/opt/homebrew/bin:$PATH" 
-          export PATH="/usr/local/bin:$PATH"
+          export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH" 
           
           if ! brew install tailscale; then
               echo "Tailscale kurulumu başarısız oldu."
@@ -93,8 +99,7 @@ jobs:
         env:
           TAILSCALE_AUTH_KEY: ${{ secrets.TAILSCALE_AUTH_KEY }}
         run: |
-          export PATH="/opt/homebrew/bin:$PATH" 
-          export PATH="/usr/local/bin:$PATH"
+          export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH" 
           
           echo "Connecting to Tailscale network..."
           tailscale up --authkey=$TAILSCALE_AUTH_KEY --hostname=gh-macos-tigervnc-$GITHUB_RUN_ID
