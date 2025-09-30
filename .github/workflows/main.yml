@@ -6,7 +6,7 @@ on:
 
 jobs:
   secure-vnc:
-    runs-on: macos-latest 
+    runs-on: macos-13 # <--- KRİTİK DEĞİŞİKLİK: Daha eski, daha kararlı runner'ı dene
     timeout-minutes: 3600 
 
     steps:
@@ -39,51 +39,33 @@ jobs:
           
           brew install tiger-vnc
           
-          # KRİTİK DÜZELTME: Bağlantı hatalarını temizlemek için unlink yap ve yeniden linkle
-          echo "Forcing relink of VNC binaries to /opt/homebrew/bin..."
-          # Önce kaldır (hata verse de görmezden gel)
-          brew unlink tiger-vnc 2>/dev/null || true
-          # Sonra yeniden kur
-          brew link tiger-vnc
+          # KRİTİK DÜZELTME: Kopyalama hatasını atlamak için Cellar yolunu doğrudan bul
+          TIGER_VNC_BIN_DIR=$(find /opt/homebrew/Cellar/tiger-vnc/ -maxdepth 2 -type d -name "bin" | head -n 1)
           
-          # 3. VNC dosyalarını bulma ve kopyalama
-          USER_BIN_PATH="/usr/local/bin" 
-          HOMEBREW_BIN_PATH="/opt/homebrew/bin"
-          
-          echo "Determining VNC binary paths for reliable execution..."
-          
-          SOURCE_PATH="$HOMEBREW_BIN_PATH"
-          
-          # Kontrol: Dosya Homebrew bin'de artık varsa kopyala.
-          if [ -f "$SOURCE_PATH/vncpasswd" ]; then
-              echo "VNC binaries found at: $SOURCE_PATH. Copying to $USER_BIN_PATH..."
-              
-              # Dosyaları /usr/local/bin'e kopyala (İzin sorununu çözer)
-              sudo cp $SOURCE_PATH/vncpasswd $USER_BIN_PATH/
-              sudo cp $SOURCE_PATH/Xvnc $USER_BIN_PATH/
-              
-              VNCPASSWD_CMD="$USER_BIN_PATH/vncpasswd"
-              XVNC_CMD="$USER_BIN_PATH/Xvnc"
-              
-              sudo chmod +x $USER_BIN_PATH/vncpasswd
-              sudo chmod +x $USER_BIN_PATH/Xvnc
-          else
-              echo "HATA: VNC ikili dosyaları yeniden linklemeye rağmen /opt/homebrew/bin'de bulunamadı. İşlem durduruluyor."
+          if [ -z "$TIGER_VNC_BIN_DIR" ]; then
+              echo "HATA: TigerVNC ikili dosyaları için Cellar dizini bulunamadı. Kurulum hatası."
               exit 1
           fi
           
-          # 4. VNC şifresini ayarlar
+          VNCPASSWD_CMD="$TIGER_VNC_BIN_DIR/vncpasswd"
+          XVNC_CMD="$TIGER_VNC_BIN_DIR/Xvnc"
+          
+          echo "VNC commands will be executed directly from: $TIGER_VNC_BIN_DIR"
+          
+          # 3. VNC şifresini ayarlar
           echo "Setting VNC password file for $USERNAME."
           
+          # RDP kullanıcısı altında vncpasswd komutunu Cellar yolundan çalıştır
           sudo su - $USERNAME -c "
             mkdir -p ~/.vnc
             echo '$PASSWORD' | $VNCPASSWD_CMD -f > ~/.vnc/passwd
             chmod 600 ~/.vnc/passwd
           "
           
-          # 5. TigerVNC Sunucusunu Başlatma
+          # 4. TigerVNC Sunucusunu Başlatma
           echo "Starting TigerVNC server on display :1 (port 5901)."
           
+          # RDP kullanıcısı altında Xvnc komutunu Cellar yolundan başlat
           sudo su - $USERNAME -c "
             $XVNC_CMD :1 -geometry 1920x1080 -depth 24 -rfbauth /Users/$USERNAME/.vnc/passwd -desktop 'GitHub Runner' &
           "
