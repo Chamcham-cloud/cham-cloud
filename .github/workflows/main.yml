@@ -7,34 +7,23 @@ jobs:
     timeout-minutes: 360
 
     steps:
-      - name: Create VNC User and Set Password
+      # ADIM 1: Yeni kullanıcı oluşturma adımını kaldırdık.
+      # Bunun yerine mevcut 'runner' kullanıcısı için bir şifre belirliyoruz.
+      - name: Set VNC Password for Existing Runner User
         run: |
-          # 'runner' kullanıcısıyla çakışmayı önlemek için tamamen yeni bir kullanıcı oluştur.
-          VNC_USER="vncuser"
+          VNC_USER="runner" # Mevcut kullanıcıyı kullanıyoruz
           VNC_PASS=$(openssl rand -base64 16)
           
           echo "VNC_USER=${VNC_USER}" >> $GITHUB_ENV
           echo "VNC_PASS=${VNC_PASS}" >> $GITHUB_ENV
 
-          # macOS üzerinde 'vncuser' adında yeni bir kullanıcı oluştur.
-          sudo dscl . -create /Users/$VNC_USER
-          sudo dscl . -create /Users/$VNC_USER UserShell /bin/bash
-          sudo dscl . -create /Users/$VNC_USER RealName "VNC User"
-          sudo dscl . -create /Users/$VNC_USER UniqueID "1001"
-          sudo dscl . -create /Users/$VNC_USER PrimaryGroupID 20
-          sudo dscl . -create /Users/$VNC_USER NFSHomeDirectory /Users/$VNC_USER
-          
-          # Yeni kullanıcının şifresini ayarla.
+          # Mevcut 'runner' kullanıcısının şifresini ayarla
           sudo dscl . -passwd /Users/$VNC_USER "$VNC_PASS"
-          
-          # Yeni kullanıcıyı yönetici (admin) grubuna ekle. Bu çok önemli.
-          sudo dscl . -append /Groups/admin GroupMembership $VNC_USER
-          
-          echo "User '$VNC_USER' created and added to the admin group."
+          echo "Password set for user '$VNC_USER'."
 
-      - name: Enable VNC (Screen Sharing) for New User
+      # ADIM 2: VNC'yi 'runner' kullanıcısı için etkinleştiriyoruz.
+      - name: Enable VNC (Screen Sharing) for Runner User
         run: |
-          # VNC'yi etkinleştir ve oluşturduğumuz 'vncuser' kullanıcısına tüm izinleri ver.
           sudo /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart \
               -activate -configure -access -on \
               -users ${{ env.VNC_USER }} -privs -all \
@@ -44,7 +33,6 @@ jobs:
       - name: Install and Start Tailscale
         run: |
           brew install tailscale
-          # DÜZELTME: Tailscale servisini `up` komutundan önce başlat.
           sudo brew services start tailscale
           sudo tailscale up --authkey=${{ secrets.TAILSCALE_AUTH_KEY }} --hostname=gh-runner-macos-${{ github.run_id }} --accept-routes
 
@@ -73,7 +61,7 @@ jobs:
           echo ""
           echo "=== VNC CONNECTION DETAILS ==="
           echo "Server Address: ${{ env.TAILSCALE_IP }}"
-          echo "Username      : ${{ env.VNC_USER }}" # Artık 'vncuser' kullanılacak
+          echo "Username      : ${{ env.VNC_USER }}" # Artık 'runner' kullanılacak
           echo "Password      : ${{ env.VNC_PASS }}"
           echo "==============================="
           echo ""
