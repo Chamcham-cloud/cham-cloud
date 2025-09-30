@@ -1,7 +1,7 @@
 name: macOS Remote Desktop (VNC via Tailscale)
 
 on:
-  # Bu iş akışını GitHub arayüzünden manuel olarak başlatmanızı sağlar
+  # İş akışını GitHub arayüzünden manuel olarak başlatmanızı sağlar
   workflow_dispatch:
 
 jobs:
@@ -32,31 +32,33 @@ jobs:
           sudo chown $USERNAME:staff /Users/$USERNAME
           sudo dscl . append /Groups/admin GroupMembership $USERNAME
           
-          # 2. TigerVNC kurma (Hata Düzeltildi: tiger-vnc)
+          # 2. TigerVNC kurma (Doğru paket adı: tiger-vnc)
           echo "Installing TigerVNC Server (Xvnc) to avoid black screen issue..."
           export PATH="/opt/homebrew/bin:$PATH" 
           export PATH="/usr/local/bin:$PATH"
           
           brew install tiger-vnc
           
-          # 3. VNC şifresini TigerVNC için ayarlar (İzin Hatası Düzeltildi)
+          # 3. VNC şifresini ayarlar (İzin hatası düzeltildi: sudo su -)
           echo "Setting VNC password file for $USERNAME."
           
-          # Tüm vncpasswd ve mkdir işlemlerini RDP kullanıcısı altında çalıştır
+          # VNC yapılandırma dosyalarını RDP kullanıcısı altında oluştur
           sudo su - $USERNAME -c "
             mkdir -p ~/.vnc
             echo '$PASSWORD' | vncpasswd -f > ~/.vnc/passwd
             chmod 600 ~/.vnc/passwd
           "
           
-          # 4. TigerVNC Sunucusunu Başlatma (Sanal Masaüstü Oturumu)
+          # 4. TigerVNC Sunucusunu Başlatma (Bağlantı Reddi Hatası İçin Düzeltildi)
           echo "Starting TigerVNC server on display :1 (port 5901)."
           
-          # Xvnc'nin tam yolunu bul
           Xvnc_CMD=$(command -v Xvnc || echo "/opt/homebrew/bin/Xvnc")
           
-          # Xvnc'yi belirtilen kullanıcı (RDP) altında başlat. Bu sanal bir oturum açar.
-          sudo su - $USERNAME -c "$Xvnc_CMD :1 -geometry 1920x1080 -depth 24 -rfbauth /Users/$USERNAME/.vnc/passwd -localhost -query localhost -desktop 'GitHub Runner' &"
+          # *** ÖNEMLİ DÜZELTME: -localhost ve -query kısıtlamaları kaldırıldı. ***
+          # Bu, sunucunun Tailscale IP'si üzerinden gelen dış bağlantıları kabul etmesini sağlar.
+          sudo su - $USERNAME -c "
+            $Xvnc_CMD :1 -geometry 1920x1080 -depth 24 -rfbauth /Users/$USERNAME/.vnc/passwd -desktop 'GitHub Runner' &
+          "
           
           sleep 5
           
@@ -79,7 +81,7 @@ jobs:
 
       - name: Establish Tailscale Connection
         env:
-          TAILSCALE_AUTH_KEY: ${{ secrets.TAILSCALE_AUTH_KEY }} # Secret'ı ENV'den kullan
+          TAILSCALE_AUTH_KEY: ${{ secrets.TAILSCALE_AUTH_KEY }}
         run: |
           export PATH="/opt/homebrew/bin:$PATH" 
           export PATH="/usr/local/bin:$PATH"
@@ -116,11 +118,10 @@ jobs:
           VNC Portu: 5901
           VNC Şifresi: Ehe.1234
           
-          BAĞLANTI ŞEKLİ: RealVNC Viewer veya TigerVNC Viewer
+          BAĞLANTI ŞEKLİ: **RealVNC Viewer** veya **TigerVNC Viewer**
           
-          1. Windows/Linux'ta bir VNC İstemcisi açın.
-          2. Adres olarak: **$TAILSCALE_IP:5901** girin.
-          3. Sadece VNC şifresi istendiğinde: **Ehe.1234** kullanın.
+          1. Adres olarak: **$TAILSCALE_IP:5901** girin (Örn: 100.75.97.35:5901).
+          2. Sadece VNC şifresi istendiğinde: **Ehe.1234** kullanın.
           
           ==================================
           "
