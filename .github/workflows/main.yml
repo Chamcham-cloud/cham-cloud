@@ -1,147 +1,89 @@
-name: macOS Remote Desktop (VNC via Tailscale)
+name: VNC Session on macOS
 
 on:
   workflow_dispatch:
 
 jobs:
-  secure-vnc:
-    runs-on: macos-13 # VNC için daha kararlı bir macOS sürümü
-    timeout-minutes: 3600 
+  macos-vnc:
+    runs-on: macos-latest
+    timeout-minutes: 360 # 6 saat
 
     steps:
-      - name: Configure User and Install TigerVNC
+      - name: Create VNC User with Secure Password
+        id: credentials # Bu adıma bir ID vererek şifreyi diğer adımlarda kullanabiliriz
         run: |
-          USERNAME="RDP"
-          PASSWORD="Ehe.1234" 
+          # Güvenli ve rastgele bir şifre oluştur
+          VNC_USER="runner"
+          VNC_PASS=$(openssl rand -base64 16)
           
-          echo "Setting up user '$USERNAME' with password '$PASSWORD'."
-          
-          # 1. Kullanıcıyı oluşturma
-          LAST_ID=$(dscl . list /Users UniqueID | awk '{print $2}' | sort -n | tail -1)
-          NEW_ID=$((LAST_ID + 1))
-          
-          sudo dscl . create /Users/$USERNAME
-          sudo dscl . create /Users/$USERNAME UniqueID $NEW_ID
-          sudo dscl . create /Users/$USERNAME PrimaryGroupID 20
-          sudo dscl . create /Users/$USERNAME UserShell /bin/bash
-          sudo dscl . create /Users/$USERNAME RealName "GH Remote User"
-          sudo dscl . create /Users/$USERNAME NFSHomeDirectory /Users/$USERNAME
-          sudo dscl . passwd /Users/$USERNAME "$PASSWORD"
-          sudo mkdir -p /Users/$USERNAME
-          sudo chown $USERNAME:staff /Users/$USERNAME
-          sudo dscl . append /Groups/admin GroupMembership $USERNAME
-          
-          # 2. TigerVNC kurma
-          echo "Installing TigerVNC Server (Xvnc) to avoid black screen issue..."
-          # PATH'e her iki Homebrew yolu da ekleniyor
-          export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH" 
-          
-          brew install tiger-vnc
-          
-          # KRİTİK DÜZELTME: Homebrew'un iki olası Cellar yolunu da ara (Apple Silicon ve Intel)
-          echo "Attempting to find VNC binaries in two possible Homebrew Cellar paths..."
-          TIGER_VNC_BIN_DIR=$(
-            find /opt/homebrew/Cellar/tiger-vnc/ -maxdepth 2 -type d -name "bin" 2>/dev/null | head -n 1
-          )
-          
-          if [ -z "$TIGER_VNC_BIN_DIR" ]; then
-             TIGER_VNC_BIN_DIR=$(
-                find /usr/local/Cellar/tiger-vnc/ -maxdepth 2 -type d -name "bin" 2>/dev/null | head -n 1
-             )
-          fi
+          echo "VNC_USER=${VNC_USER}" >> $GITHUB_ENV
+          echo "VNC_PASS=${VNC_PASS}" >> $GITHUB_ENV
 
-          if [ -z "$TIGER_VNC_BIN_DIR" ]; then
-              echo "HATA: TigerVNC ikili dosyaları Cellar dizinlerinde bulunamadı. Kurulum hatası."
-              exit 1
-          fi
+          # macOS üzerinde kullanıcı oluşturma ve yönetici yapma
+          sudo dscl . -create /Users/$VNC_USER
+          sudo dscl . -create /Users/$VNC_USER UserShell /bin/bash
+          sudo dscl . -create /Users/$VNC_USER RealName "VNC User"
+          sudo dscl . -create /Users/$VNC_USER UniqueID "1001"
+          sudo dscl . -create /Users/$VNC_USER PrimaryGroupID 20
+          sudo dscl . -create /Users/$VNC_USER NFSHomeDirectory /Users/$VNC_USER
+          sudo dscl . -passwd /Users/$VNC_USER "$VNC_PASS"
+          sudo dscl . -append /Groups/admin GroupMembership $VNC_USER
           
-          VNCPASSWD_CMD="$TIGER_VNC_BIN_DIR/vncpasswd"
-          XVNC_CMD="$TIGER_VNC_BIN_DIR/Xvnc"
-          
-          echo "VNC commands will be executed directly from: $TIGER_VNC_BIN_DIR"
-          
-          # 3. VNC şifresini ayarlar
-          echo "Setting VNC password file for $USERNAME."
-          
-          sudo su - $USERNAME -c "
-            mkdir -p ~/.vnc
-            echo '$PASSWORD' | $VNCPASSWD_CMD -f > ~/.vnc/passwd
-            chmod 600 ~/.vnc/passwd
-          "
-          
-          # 4. TigerVNC Sunucusunu Başlatma
-          echo "Starting TigerVNC server on display :1 (port 5901)."
-          
-          # Xvnc komutunu doğrudan Cellar yolu üzerinden başlat
-          sudo su - $USERNAME -c "
-            $XVNC_CMD :1 -geometry 1920x1080 -depth 24 -rfbauth /Users/$USERNAME/.vnc/passwd -desktop 'GitHub Runner' &
-          "
-          
-          sleep 5
-          
-          echo "VNC Server (TigerVNC) is running on port 5901."
-          echo "RDP_CREDS=User: $USERNAME | Password: $PASSWORD" >> $GITHUB_ENV
-          
-      - name: Install Tailscale and Start Service
+          echo "Kullanıcı '$VNC_USER' başarıyla oluşturuldu."
+
+      - name: Enable VNC (Screen Sharing)
         run: |
-          export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH" 
-          
-          if ! brew install tailscale; then
-              echo "Tailscale kurulumu başarısız oldu."
-              exit 1
-          fi
+          # VNC'yi etkinleştir ve oluşturulan kullanıcıya tüm izinleri ver
+          sudo /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart \
+              -activate -configure -access -on \
+              -users ${{ env.VNC_USER }} -privs -all \
+              -restart -agent -menu
+          echo "VNC servisi etkinleştirildi."
 
-          echo "Starting tailscaled service..."
-          sudo tailscaled &
-          sleep 5
-
-      - name: Establish Tailscale Connection
-        env:
-          TAILSCALE_AUTH_KEY: ${{ secrets.TAILSCALE_AUTH_KEY }}
+      - name: Install and Start Tailscale
         run: |
-          export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH" 
+          # Homebrew ile Tailscale'i kur
+          brew install tailscale
           
-          echo "Connecting to Tailscale network..."
-          tailscale up --authkey=$TAILSCALE_AUTH_KEY --hostname=gh-macos-tigervnc-$GITHUB_RUN_ID
-          
-          # IP almasını bekleme
+          # Tailscale servisini başlat
+          sudo tailscale up --authkey=${{ secrets.TAILSCALE_AUTH_KEY }} --hostname=gh-runner-macos-${{ github.run_id }} --accept-routes
+
+      - name: Get Tailscale IP
+        id: tailscale_ip
+        run: |
+          # Tailscale'in IP ataması için bekle
           TS_IP=""
-          for i in {1..15}; do
-              TS_IP=$(tailscale ip -4 2>/dev/null)
-              if [ -n "$TS_IP" ]; then
-                  break
-              fi
-              sleep 4
+          for i in {1..10}; do
+            TS_IP=$(tailscale ip -4)
+            if [ -n "$TS_IP" ]; then
+              echo "Tailscale IP adresi alındı: $TS_IP"
+              break
+            fi
+            echo "Tailscale IP bekleniyor... ($i/10)"
+            sleep 5
           done
-          
+
           if [ -z "$TS_IP" ]; then
-              echo "Tailscale IP adresi alınamadı. İşlem başarısız."
-              exit 1
+            echo "::error::Tailscale IP adresi alınamadı."
+            exit 1
           fi
           
           echo "TAILSCALE_IP=$TS_IP" >> $GITHUB_ENV
-      
-      - name: Maintain Connection and Display Info
+
+      - name: Maintain Connection
         run: |
-          echo "
+          echo ""
+          echo "=== VNC BAĞLANTI BİLGİLERİ ==="
+          echo "Sunucu Adresi: ${{ env.TAILSCALE_IP }}"
+          echo "Kullanıcı Adı: ${{ env.VNC_USER }}"
+          echo "Şifre         : ${{ env.VNC_PASS }}"
+          echo "Not: Bağlantı için herhangi bir VNC istemcisi (RealVNC, TightVNC, vb.) kullanabilirsiniz."
+          echo "macOS'tan bağlanıyorsanız Finder > Git > Sunucuya Bağlan (vnc://${{ env.TAILSCALE_IP }}) kullanabilirsiniz."
+          echo "==============================="
+          echo ""
           
-          ==================================
-              MAC GRAFİK ARAYÜZÜ (TIGER VNC) ERİŞİMİ
-          ==================================
-          
-          Adres (Tailscale IP): $TAILSCALE_IP
-          VNC Portu: 5901
-          VNC Şifresi: Ehe.1234
-          
-          BAĞLANTI ŞEKLİ: **RealVNC Viewer** veya **TigerVNC Viewer**
-          
-          1. Adres olarak: **$TAILSCALE_IP:5901** girin.
-          2. Sadece VNC şifresi istendiğinde: **Ehe.1234** kullanın.
-          
-          ==================================
-          "
-          # Çalıştırıcıyı aktif tutmak için uzun süre döngüde kal
+          # Runner'ı aktif tutmak için sonsuz döngü
           while true; do
-              echo "[$(date)] VNC Erişimi Aktif. İş akışını sonlandırmak için manuel olarak iptal edin."
-              sleep 300
+            echo "[$(date)] VNC oturumu aktif. Sonlandırmak için workflow'u manuel olarak iptal edin."
+            sleep 300
           done
