@@ -1,6 +1,7 @@
 name: macOS Remote Desktop (VNC via Tailscale)
 
 on:
+  # Bu iş akışını GitHub arayüzünden manuel olarak başlatmanızı sağlar
   workflow_dispatch:
 
 jobs:
@@ -32,19 +33,17 @@ jobs:
           sudo chown $USERNAME:staff /Users/$USERNAME
           sudo dscl . append /Groups/admin GroupMembership $USERNAME
           
-          # 2. VNC (Ekran Paylaşımı) Özelliğini Etkinleştirme
-          echo "Enabling VNC and setting permissions..."
+          # 2. VNC (Ekran Paylaşımı) Özelliğini Etkinleştirme (Düzeltildi)
+          echo "Enabling VNC and setting permissions using kickstart..."
           
-          # Ekran Paylaşımını (VNC) etkinleştirir
-          sudo systemsetup -setremotefileaccess off # Önce dosya paylaşımı varsa kapat
-          sudo systemsetup -setcomputersleep Never # Bilgisayarın uyumasını engelle
-          sudo systemsetup -setremotemanagement on # Uzaktan Yönetimi (Ekran Paylaşımını) etkinleştirir
+          # Bilgisayarın uykuya geçmesini engellemek için daha basit komut
+          sudo pmset -a disablesleep 1
           
-          # Uzaktan kontrol için kullanıcı yetkilerini ayarlar
-          sudo defaults write /var/db/com.apple.xserver/RemoteManagement/AccessControl ARDAccess -bool YES
+          # Ekran paylaşımını etkinleştirir ve kullanıcıya tüm yetkileri verir.
+          # Bu komutun çalıştığı önceki çıktınızda görüldü.
           sudo /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart -activate -configure -access -on -users "$USERNAME" -privs -all -restart -agent
           
-          # Herhangi bir şifre sorulmadan bağlanmaya izin verme (Güvenliği azaltır ama test için işe yarar)
+          # VNC sunucusunun tam ekran kontrolüne izin verdiğinden emin olma
           sudo defaults write com.apple.ScreenSharing AllowAnyUser -bool YES
           
           echo "VNC (Remote Desktop equivalent) is now enabled and configured."
@@ -109,6 +108,7 @@ jobs:
           
           ==================================
           "
+          # Çalıştırıcıyı aktif tutmak için uzun süre döngüde kal
           while true; do
               echo "[$(date)] VNC Erişimi Aktif. İş akışını sonlandırmak için manuel olarak iptal edin."
               sleep 300
