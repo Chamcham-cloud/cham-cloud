@@ -7,22 +7,20 @@ jobs:
     timeout-minutes: 360
 
     steps:
-      # ADIM 1: 'runner' kullanıcısının şifresini en güvenilir yöntemle sıfırla
-      - name: Reset Password for Runner User using sysadminctl
+      # ADIM 1: Sorun çıkarmayacak sabit bir şifre belirle
+      - name: Set a Simple Password for Runner User
         run: |
           VNC_USER="runner"
-          # Güvenli bir şifre oluştur
-          VNC_PASS=$(openssl rand -base64 16)
+          # Kimlik doğrulama hatasını önlemek için basit, özel karaktersiz bir şifre kullanıyoruz.
+          VNC_PASS="GitHub12345"
           
-          # Oluşturulan şifreyi sonraki adımlarda kullanmak için kaydet
           echo "VNC_USER=${VNC_USER}" >> $GITHUB_ENV
           echo "VNC_PASS=${VNC_PASS}" >> $GITHUB_ENV
 
-          # BU KOMUT KESİN ÇÖZÜMDÜR:
-          # sysadminctl, eski parola sormadan şifreyi sıfırlayan modern bir Apple aracıdır.
+          # sysadminctl ile şifreyi sıfırla
           sudo sysadminctl -resetPasswordFor $VNC_USER -newPassword "$VNC_PASS"
           
-          echo "Password for user '$VNC_USER' has been reset successfully."
+          echo "Password for user '$VNC_USER' has been set."
 
       # ADIM 2: VNC (Ekran Paylaşımı) servisini etkinleştir
       - name: Enable VNC for Runner User
