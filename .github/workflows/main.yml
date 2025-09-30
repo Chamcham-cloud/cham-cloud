@@ -34,34 +34,41 @@ jobs:
           
           # 2. TigerVNC kurma
           echo "Installing TigerVNC Server (Xvnc) to avoid black screen issue..."
-          # Homebrew'un PATH'i zaten mevcut oturumda var, ancak RDP kullanıcısına geçireceğiz.
           export PATH="/opt/homebrew/bin:$PATH" 
           export PATH="/usr/local/bin:$PATH"
           
           brew install tiger-vnc
           
-          # 3. VNC şifresini ayarlar (DÜZELTİLDİ: PATH'i RDP kullanıcısına aktar)
+          # 3. VNC şifresini ayarlar (DÜZELTİLDİ: Komutların tam yolu kullanılır)
           echo "Setting VNC password file for $USERNAME."
           
-          HOMEBREW_BIN_PATH="/opt/homebrew/bin"
+          # KRİTİK: Homebrew'in kurulum dizinini (Cellar) dinamik olarak bul
+          TIGER_VNC_CELLAR_PATH=$(find /opt/homebrew/Cellar/tiger-vnc -maxdepth 1 -mindepth 1 -type d)
           
-          # Homebrew PATH'ini RDP kullanıcısının shell'ine aktararak komutların bulunmasını sağlar.
+          # VNC komutlarının tam yollarını Cellar içinden belirle
+          # Bu, PATH ayarlarındaki karmaşayı tamamen ortadan kaldırır.
+          VNCPASSWD_CMD="$TIGER_VNC_CELLAR_PATH/bin/vncpasswd"
+          XVNC_CMD="$TIGER_VNC_CELLAR_PATH/bin/Xvnc"
+          
+          # Fallback: Eğer Cellar yolu bulunamazsa /opt/homebrew/bin'i dene
+          if [ -z "$TIGER_VNC_CELLAR_PATH" ]; then
+              VNCPASSWD_CMD="/opt/homebrew/bin/vncpasswd"
+              XVNC_CMD="/opt/homebrew/bin/Xvnc"
+          fi
+          
+          # VNC yapılandırma dosyalarını RDP kullanıcısı altında oluştur (TAM YOL kullanılıyor)
           sudo su - $USERNAME -c "
-            export PATH=$HOMEBREW_BIN_PATH:\$PATH
-            # vncpasswd artık bulunacak.
             mkdir -p ~/.vnc
-            echo '$PASSWORD' | vncpasswd -f > ~/.vnc/passwd
+            echo '$PASSWORD' | $VNCPASSWD_CMD -f > ~/.vnc/passwd
             chmod 600 ~/.vnc/passwd
           "
           
-          # 4. TigerVNC Sunucusunu Başlatma (DÜZELTİLDİ: Ağ kısıtlamaları ve PATH sorunu giderildi)
+          # 4. TigerVNC Sunucusunu Başlatma (DÜZELTİLDİ: TAM YOL kullanılıyor)
           echo "Starting TigerVNC server on display :1 (port 5901)."
           
-          # Xvnc'yi RDP kullanıcısı altında başlat ve Tailscale bağlantısına izin ver.
+          # Xvnc'yi RDP kullanıcısı altında başlat
           sudo su - $USERNAME -c "
-            export PATH=$HOMEBREW_BIN_PATH:\$PATH
-            # Xvnc artık bulunacak.
-            Xvnc :1 -geometry 1920x1080 -depth 24 -rfbauth /Users/$USERNAME/.vnc/passwd -desktop 'GitHub Runner' &
+            $XVNC_CMD :1 -geometry 1920x1080 -depth 24 -rfbauth /Users/$USERNAME/.vnc/passwd -desktop 'GitHub Runner' &
           "
           
           sleep 5
