@@ -1,70 +1,63 @@
-name: VNC Session on macOS
+name: VNC Session on macOS (Ventura)
 
 on:
   workflow_dispatch:
 
 jobs:
   macos-vnc:
-    runs-on: macos-latest
+    # DEĞİŞİKLİK BURADA: macOS-13 (Ventura) sürümü kullanılıyor.
+    runs-on: macos-13
     timeout-minutes: 360 # 6 saat
 
     steps:
-      - name: Create VNC User with Secure Password
-        id: credentials # Bu adıma bir ID vererek şifreyi diğer adımlarda kullanabiliriz
+      - name: Set Password for Existing Runner User
         run: |
-          # Güvenli ve rastgele bir şifre oluştur
+          # Workflow zaten 'runner' kullanıcısı olarak çalışıyor. Bu kullanıcıyı kullanacağız.
           VNC_USER="runner"
-          VNC_PASS=$(openssl rand -base64 16)
-          
           echo "VNC_USER=${VNC_USER}" >> $GITHUB_ENV
+
+          # Mevcut 'runner' kullanıcısı için güvenli ve rastgele bir şifre oluştur.
+          VNC_PASS=$(openssl rand -base64 16)
           echo "VNC_PASS=${VNC_PASS}" >> $GITHUB_ENV
 
-          # macOS üzerinde kullanıcı oluşturma ve yönetici yapma
-          sudo dscl . -create /Users/$VNC_USER
-          sudo dscl . -create /Users/$VNC_USER UserShell /bin/bash
-          sudo dscl . -create /Users/$VNC_USER RealName "VNC User"
-          sudo dscl . -create /Users/$VNC_USER UniqueID "1001"
-          sudo dscl . -create /Users/$VNC_USER PrimaryGroupID 20
-          sudo dscl . -create /Users/$VNC_USER NFSHomeDirectory /Users/$VNC_USER
+          # 'runner' kullanıcısının şifresini ayarla. 
           sudo dscl . -passwd /Users/$VNC_USER "$VNC_PASS"
-          sudo dscl . -append /Groups/admin GroupMembership $VNC_USER
           
-          echo "Kullanıcı '$VNC_USER' başarıyla oluşturuldu."
+          echo "Password for user '$VNC_USER' has been set successfully."
 
       - name: Enable VNC (Screen Sharing)
         run: |
-          # VNC'yi etkinleştir ve oluşturulan kullanıcıya tüm izinleri ver
+          # VNC'yi etkinleştir ve 'runner' kullanıcısına tüm izinleri ver.
           sudo /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart \
               -activate -configure -access -on \
               -users ${{ env.VNC_USER }} -privs -all \
               -restart -agent -menu
-          echo "VNC servisi etkinleştirildi."
+          echo "VNC service enabled for user '${{ env.VNC_USER }}'."
 
       - name: Install and Start Tailscale
         run: |
-          # Homebrew ile Tailscale'i kur
+          # Homebrew ile Tailscale'i kur.
           brew install tailscale
           
-          # Tailscale servisini başlat
+          # Tailscale servisini başlat.
           sudo tailscale up --authkey=${{ secrets.TAILSCALE_AUTH_KEY }} --hostname=gh-runner-macos-${{ github.run_id }} --accept-routes
 
       - name: Get Tailscale IP
-        id: tailscale_ip
         run: |
-          # Tailscale'in IP ataması için bekle
+          # Tailscale'in IP ataması için bekle.
           TS_IP=""
           for i in {1..10}; do
             TS_IP=$(tailscale ip -4)
             if [ -n "$TS_IP" ]; then
-              echo "Tailscale IP adresi alındı: $TS_IP"
+              echo "Tailscale IP address acquired: $TS_IP"
               break
             fi
-            echo "Tailscale IP bekleniyor... ($i/10)"
+            echo "Waiting for Tailscale IP... ($i/10)"
             sleep 5
           done
 
           if [ -z "$TS_IP" ]; then
-            echo "::error::Tailscale IP adresi alınamadı."
+            echo "::error::Could not get Tailscale IP address."
             exit 1
           fi
           
@@ -73,17 +66,17 @@ jobs:
       - name: Maintain Connection
         run: |
           echo ""
-          echo "=== VNC BAĞLANTI BİLGİLERİ ==="
-          echo "Sunucu Adresi: ${{ env.TAILSCALE_IP }}"
-          echo "Kullanıcı Adı: ${{ env.VNC_USER }}"
-          echo "Şifre         : ${{ env.VNC_PASS }}"
-          echo "Not: Bağlantı için herhangi bir VNC istemcisi (RealVNC, TightVNC, vb.) kullanabilirsiniz."
-          echo "macOS'tan bağlanıyorsanız Finder > Git > Sunucuya Bağlan (vnc://${{ env.TAILSCALE_IP }}) kullanabilirsiniz."
+          echo "=== VNC CONNECTION DETAILS ==="
+          echo "Server Address: ${{ env.TAILSCALE_IP }}"
+          echo "Username      : ${{ env.VNC_USER }}"
+          echo "Password      : ${{ env.VNC_PASS }}"
+          echo "Note: Use any VNC client (e.g., RealVNC, TightVNC)."
+          echo "From a Mac, use Finder > Go > Connect to Server (vnc://${{ env.TAILSCALE_IP }})"
           echo "==============================="
           echo ""
           
-          # Runner'ı aktif tutmak için sonsuz döngü
+          # Runner'ı aktif tutmak için sonsuz döngü.
           while true; do
-            echo "[$(date)] VNC oturumu aktif. Sonlandırmak için workflow'u manuel olarak iptal edin."
+            echo "[$(date)] VNC session is active. Cancel the workflow to terminate."
             sleep 300
           done
