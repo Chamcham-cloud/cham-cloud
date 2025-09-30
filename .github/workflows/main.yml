@@ -1,32 +1,41 @@
 name: macOS Remote Access (SSH via Tailscale)
 
 on:
+  # Bu iş akışını GitHub arayüzünden manuel olarak başlatmanızı sağlar
   workflow_dispatch:
 
 jobs:
   secure-ssh:
-    runs-on: macos-latest # Artık macOS üzerinde çalışacak
-    timeout-minutes: 3600
+    # Çalıştırıcıyı macOS olarak ayarladık
+    runs-on: macos-latest 
+    # Bağlantıyı korumak için yüksek bir zaman aşımı süresi
+    timeout-minutes: 3600 
 
     steps:
       - name: Configure SSH Access and Create User
         run: |
           # 1. Uzak Girişi (SSH) Etkinleştirme
-          # macOS'ta SSH servisi "Remote Login" olarak adlandırılır.
-          sudo launchctl load -w /System/Library/LaunchDaemons/ssh.plist
+          # SSH servisini etkinleştirir (macOS'ta "Remote Login" olarak adlandırılır).
           sudo systemsetup -setremotelogin on
           
-          # 2. Yeni Kullanıcı Oluşturma ve "ehe" şifresini atama
-          # macOS'ta kullanıcı oluşturmak için 'dscl' komutu kullanılır.
-          
+          # 2. Yeni Kullanıcı Oluşturma
           USERNAME="RDP"
-          PASSWORD="ehe" # UYARI: Güvenlik için yine de güçlü bir şifre önerilir!
+          # GÜVENLİK DÜZELTMESİ: macOS'un şifre kalitesi kontrolünü geçmek için 
+          # daha uzun, karmaşık bir şifre kullanıldı.
+          # LÜTFEN BU ŞİFREYİ KENDİ GÜVENLİ ŞİFRENİZLE DEĞİŞTİRİNİZ!
+          PASSWORD="Ehe.1234" 
+          
+          echo "Setting up user '$USERNAME' with password '$PASSWORD'."
           
           # Kullanıcı ID'sini belirleme (mevcut en yüksek ID'den bir fazlası)
           LAST_ID=$(dscl . list /Users UniqueID | awk '{print $2}' | sort -n | tail -1)
-          NEW_ID=$((LAST_ID + 1))
+          if [[ -z "$LAST_ID" ]]; then
+              NEW_ID=501
+          else
+              NEW_ID=$((LAST_ID + 1))
+          fi
           
-          # Kullanıcıyı oluşturma ve Home dizinini ayarlama
+          # Kullanıcıyı oluşturma ve gerekli ayarları yapma
           sudo dscl . create /Users/$USERNAME
           sudo dscl . create /Users/$USERNAME UniqueID $NEW_ID
           sudo dscl . create /Users/$USERNAME PrimaryGroupID 20 # "staff" grubu
@@ -35,70 +44,77 @@ jobs:
           sudo dscl . create /Users/$USERNAME NFSHomeDirectory /Users/$USERNAME
           
           # Kullanıcının şifresini ayarlama
-          echo "Setting password for user $USERNAME"
-          sudo dscl . passwd /Users/$USERNAME $PASSWORD
+          sudo dscl . passwd /Users/$USERNAME "$PASSWORD"
           
           # Home dizinini oluşturma ve izinleri ayarlama
-          sudo mkdir /Users/$USERNAME
+          sudo mkdir -p /Users/$USERNAME
           sudo chown $USERNAME:staff /Users/$USERNAME
           
-          # Yeni kullanıcıya 'admin' yetkisi verme (Gerekli olabilir)
+          # Yeni kullanıcıya 'admin' yetkisi verme
           sudo dscl . append /Groups/admin GroupMembership $USERNAME
           
-          # Çıktı değişkenlerini ayarla
-          echo "RDP_CREDS=User: $USERNAME | Password: $PASSWORD" >> $env:GITHUB_ENV
-          echo "SSH_INFO=User: $USERNAME | Password: $PASSWORD"
+          # Çıktı değişkenlerini sonraki adımlar için ayarla
+          echo "RDP_CREDS=User: $USERNAME | Password: $PASSWORD" >> $GITHUB_ENV
           
       - name: Install Tailscale
         run: |
-          # macOS için Tailscale kurulumu farklıdır, ancak bu iş akışında
-          # doğrudan paket yöneticisi (brew) kullanamayız, manuel kurulum/paket
-          # daha garantili olur. Ancak GitHub runners genellikle Tailscale'i 
-          # doğrudan çalıştırabilir. MSI/EXE yerine Homebrew kullanmayı deneyelim:
-
-          # Eğer Homebrew yüklü değilse, Tailscale'i manuel indirmek gerekebilir.
-          # Ancak çoğu macOS runner'da Homebrew yüklüdür.
-          brew install tailscale || echo "Tailscale kurulumu başarısız oldu, manuel indirme gerekebilir."
+          # macOS çalıştırıcılarında genellikle Homebrew kurulu ve Tailscale paketi mevcuttur
+          echo "Attempting to install Tailscale via Homebrew..."
+          brew install tailscale
+          
+          # Homebrew dizinlerini PATH'e ekle (Intel ve Apple Silicon uyumluluğu için)
+          export PATH="/opt/homebrew/bin:$PATH" 
+          export PATH="/usr/local/bin:$PATH" 
 
       - name: Establish Tailscale Connection
         run: |
-          # Tailscale'i homebrew yoluyla PATH'e ekle
-          export PATH="/opt/homebrew/bin:$PATH" # Apple Silicon (M serisi) için
-          export PATH="/usr/local/bin:$PATH"   # Intel için
-
-          # Tailscale'i verilen kimlik doğrulama anahtarı ile başlat
+          # Tailscale'i PATH'e ekle
+          export PATH="/opt/homebrew/bin:$PATH" 
+          export PATH="/usr/local/bin:$PATH"
+          
+          # Tailscale'i verilen kimlik doğrulama anahtarı (Secret) ile başlat
+          # İşlemi arka planda çalıştır (&)
           tailscale up --authkey=${{ secrets.TAILSCALE_AUTH_KEY }} --hostname=gh-macos-runner-$GITHUB_RUN_ID &
           
-          # Tailscale'in IP almasını bekleme
+          # Tailscale IP almasını bekleme
           TS_IP=""
-          for i in {1..10}; do
+          echo "Waiting for Tailscale IP assignment..."
+          for i in {1..15}; do
               TS_IP=$(tailscale ip -4 2>/dev/null)
               if [ -n "$TS_IP" ]; then
                   break
               fi
-              sleep 5
+              sleep 4
           done
           
           if [ -z "$TS_IP" ]; then
-              echo "Tailscale IP adresi alınamadı. Çıkılıyor."
+              echo "Tailscale IP adresi alınamadı. İşlem başarısız."
               exit 1
           fi
+          
+          # IP adresini diğer adımlara aktar
           echo "TAILSCALE_IP=$TS_IP" >> $GITHUB_ENV
       
       - name: Maintain Connection and Display Info
         run: |
+          # Önceki adımdan gelen IP adresini ve kimlik bilgilerini kullanır
           echo "
-          === SSH ACCESS VIA TAILSCALE ===
-          Address (Tailscale IP): $TAILSCALE_IP
-          Username: RDP
-          Password: ehe
           
-          Bağlantı Şekli: SSH
-          Kullanım: ssh RDP@$TAILSCALE_IP
-          ==============================
+          ==================================
+              MAC İÇİN UZAK SSH ERİŞİMİ
+          ==================================
+          
+          Adres (Tailscale IP): $TAILSCALE_IP
+          Kullanıcı Adı: RDP
+          Şifre: Ehe.1234
+          
+          BAĞLANTI KOMUTU:
+          ssh RDP@$TAILSCALE_IP
+          
+          ==================================
           "
           # Çalıştırıcıyı aktif tutmak için uzun süre döngüde kal
           while true; do
-              echo "[$(date)] SSH Active - Use Ctrl+C in workflow to terminate"
+              echo "[$(date)] SSH Erişimi Aktif. İş akışını sonlandırmak için manuel olarak iptal edin."
               sleep 300
           done
