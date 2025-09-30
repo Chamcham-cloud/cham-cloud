@@ -1,7 +1,6 @@
-name: macOS Remote Desktop (VNC via Tailscale)
+name: macOS Remote Desktop (VNC via Tailscale - TIGER VNC)
 
 on:
-  # Bu iş akışını GitHub arayüzünden manuel olarak başlatmanızı sağlar
   workflow_dispatch:
 
 jobs:
@@ -10,15 +9,14 @@ jobs:
     timeout-minutes: 3600 
 
     steps:
-      - name: Configure User and Enable VNC (Remote Desktop)
+      - name: Configure User and Install TigerVNC
         run: |
           USERNAME="RDP"
-          # KULLANICI ŞİFRESİ: Güvenlik için daha güçlü şifre korundu.
           PASSWORD="Ehe.1234" 
           
           echo "Setting up user '$USERNAME' with password '$PASSWORD'."
           
-          # 1. Kullanıcıyı oluşturma
+          # 1. Kullanıcıyı oluşturma (Değişiklik yapılmadı)
           LAST_ID=$(dscl . list /Users UniqueID | awk '{print $2}' | sort -n | tail -1)
           NEW_ID=$((LAST_ID + 1))
           
@@ -33,20 +31,31 @@ jobs:
           sudo chown $USERNAME:staff /Users/$USERNAME
           sudo dscl . append /Groups/admin GroupMembership $USERNAME
           
-          # 2. VNC (Ekran Paylaşımı) Özelliğini Etkinleştirme (Düzeltildi)
-          echo "Enabling VNC and setting permissions using kickstart..."
+          # 2. Sistem VNC (Ekran Paylaşımı) yerine TigerVNC kurma
+          echo "Installing TigerVNC Server (Xvnc) to avoid black screen issue..."
+          export PATH="/opt/homebrew/bin:$PATH" 
+          export PATH="/usr/local/bin:$PATH"
           
-          # Bilgisayarın uykuya geçmesini engellemek için daha basit komut
-          sudo pmset -a disablesleep 1
+          brew install tigervnc
           
-          # Ekran paylaşımını etkinleştirir ve kullanıcıya tüm yetkileri verir.
-          # Bu komutun çalıştığı önceki çıktınızda görüldü.
-          sudo /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart -activate -configure -access -on -users "$USERNAME" -privs -all -restart -agent
+          # 3. VNC şifresini TigerVNC için ayarlar (Standart 8 karakter VNC şifresi)
+          # Bu şifre, RDP kullanıcısının şifresiyle aynı olmalıdır.
+          mkdir -p /Users/$USERNAME/.vnc
+          echo "$PASSWORD" | vncpasswd -f > /Users/$USERNAME/.vnc/passwd
+          sudo chown $USERNAME:staff /Users/$USERNAME/.vnc/passwd
+          sudo chmod 600 /Users/$USERNAME/.vnc/passwd
           
-          # VNC sunucusunun tam ekran kontrolüne izin verdiğinden emin olma
-          sudo defaults write com.apple.ScreenSharing AllowAnyUser -bool YES
+          # 4. TigerVNC Sunucusunu Başlatma (Sanal Masaüstü Oturumu)
+          # 1920x1080 çözünürlükte :1 numaralı ekranda başlatır
+          echo "Starting TigerVNC server on display :1 (port 5901)."
           
-          echo "VNC (Remote Desktop equivalent) is now enabled and configured."
+          # Xvnc'yi belirtilen kullanıcı (RDP) altında başlat
+          sudo su - $USERNAME -c "Xvnc :1 -geometry 1920x1080 -depth 24 -rfbauth /Users/$USERNAME/.vnc/passwd -localhost -query localhost -desktop 'GitHub Runner' &"
+          
+          # Servisin başlaması için bekle
+          sleep 5
+          
+          echo "VNC Server (TigerVNC) is running on port 5901."
           echo "RDP_CREDS=User: $USERNAME | Password: $PASSWORD" >> $GITHUB_ENV
           
       - name: Install Tailscale and Start Service
@@ -69,9 +78,10 @@ jobs:
           export PATH="/usr/local/bin:$PATH"
           
           echo "Connecting to Tailscale network..."
-          tailscale up --authkey=${{ secrets.TAILSCALE_AUTH_KEY }} --hostname=gh-macos-vnc-$GITHUB_RUN_ID
+          # Tailscale'i başlat
+          tailscale up --authkey=${{ secrets.TAILSCALE_AUTH_KEY }} --hostname=gh-macos-tigervnc-$GITHUB_RUN_ID
           
-          # Tailscale IP almasını bekleme
+          # IP almasını bekleme
           TS_IP=""
           for i in {1..15}; do
               TS_IP=$(tailscale ip -4 2>/dev/null)
@@ -93,22 +103,21 @@ jobs:
           echo "
           
           ==================================
-              MAC GRAFİK ARAYÜZÜ (VNC) ERİŞİMİ
+          MAC GRAFİK ARAYÜZÜ (TIGER VNC) ERİŞİMİ
           ==================================
           
           Adres (Tailscale IP): $TAILSCALE_IP
-          Kullanıcı Adı: RDP
-          Şifre: Ehe.1234
+          VNC Portu: 5901
+          VNC Şifresi: Ehe.1234 (Kullanıcı adı gerekmez, sadece şifre)
           
           BAĞLANTI ŞEKLİ: Windows'ta VNC İstemcisi
           
-          1. Windows'ta RealVNC Viewer, TightVNC Viewer gibi bir VNC istemcisi açın.
-          2. Adres olarak: $TAILSCALE_IP girin.
-          3. Kullanıcı adı/Şifre olarak RDP / Ehe.1234 kullanın.
+          1. Windows'ta **RealVNC Viewer** veya **TigerVNC Viewer** gibi bir istemci açın.
+          2. Adres olarak: **$TAILSCALE_IP:5901** girin.
+          3. Sadece VNC şifresi istendiğinde: **Ehe.1234** kullanın.
           
           ==================================
           "
-          # Çalıştırıcıyı aktif tutmak için uzun süre döngüde kal
           while true; do
               echo "[$(date)] VNC Erişimi Aktif. İş akışını sonlandırmak için manuel olarak iptal edin."
               sleep 300
