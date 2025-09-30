@@ -39,8 +39,11 @@ jobs:
           
           brew install tiger-vnc
           
-          # KRİTİK DÜZELTME: Dosyaların PATH'te görünmesi için zorla bağla (symlink oluştur)
-          echo "Forcing Homebrew to link VNC binaries to /opt/homebrew/bin..."
+          # KRİTİK DÜZELTME: Bağlantı hatalarını temizlemek için unlink yap ve yeniden linkle
+          echo "Forcing relink of VNC binaries to /opt/homebrew/bin..."
+          # Önce kaldır (hata verse de görmezden gel)
+          brew unlink tiger-vnc 2>/dev/null || true
+          # Sonra yeniden kur
           brew link tiger-vnc
           
           # 3. VNC dosyalarını bulma ve kopyalama
@@ -49,32 +52,29 @@ jobs:
           
           echo "Determining VNC binary paths for reliable execution..."
           
-          # brew link başarılıysa, dosyalar burada olacaktır.
           SOURCE_PATH="$HOMEBREW_BIN_PATH"
           
-          # Kontrol: Eğer dosya Homebrew bin'de artık varsa kopyala.
+          # Kontrol: Dosya Homebrew bin'de artık varsa kopyala.
           if [ -f "$SOURCE_PATH/vncpasswd" ]; then
               echo "VNC binaries found at: $SOURCE_PATH. Copying to $USER_BIN_PATH..."
+              
               # Dosyaları /usr/local/bin'e kopyala (İzin sorununu çözer)
               sudo cp $SOURCE_PATH/vncpasswd $USER_BIN_PATH/
               sudo cp $SOURCE_PATH/Xvnc $USER_BIN_PATH/
               
-              # Çalıştırılacak komutlar artık /usr/local/bin altında
               VNCPASSWD_CMD="$USER_BIN_PATH/vncpasswd"
               XVNC_CMD="$USER_BIN_PATH/Xvnc"
               
-              # Dosyaların çalıştırılabilir olduğundan emin ol
               sudo chmod +x $USER_BIN_PATH/vncpasswd
               sudo chmod +x $USER_BIN_PATH/Xvnc
           else
-              echo "HATA: VNC ikili dosyaları /opt/homebrew/bin'de bulunamadı. İşlem durduruluyor."
+              echo "HATA: VNC ikili dosyaları yeniden linklemeye rağmen /opt/homebrew/bin'de bulunamadı. İşlem durduruluyor."
               exit 1
           fi
           
           # 4. VNC şifresini ayarlar
           echo "Setting VNC password file for $USERNAME."
           
-          # RDP kullanıcısı altında vncpasswd komutunu çalıştır
           sudo su - $USERNAME -c "
             mkdir -p ~/.vnc
             echo '$PASSWORD' | $VNCPASSWD_CMD -f > ~/.vnc/passwd
@@ -84,7 +84,6 @@ jobs:
           # 5. TigerVNC Sunucusunu Başlatma
           echo "Starting TigerVNC server on display :1 (port 5901)."
           
-          # RDP kullanıcısı altında Xvnc komutunu başlat
           sudo su - $USERNAME -c "
             $XVNC_CMD :1 -geometry 1920x1080 -depth 24 -rfbauth /Users/$USERNAME/.vnc/passwd -desktop 'GitHub Runner' &
           "
