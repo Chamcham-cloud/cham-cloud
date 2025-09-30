@@ -7,20 +7,25 @@ jobs:
     timeout-minutes: 360
 
     steps:
-      - name: Set VNC Password for Existing Runner User
+      # ADIM 1: 'runner' kullanıcısının şifresini en güvenilir yöntemle sıfırla
+      - name: Reset Password for Runner User using sysadminctl
         run: |
           VNC_USER="runner"
+          # Güvenli bir şifre oluştur
           VNC_PASS=$(openssl rand -base64 16)
           
+          # Oluşturulan şifreyi sonraki adımlarda kullanmak için kaydet
           echo "VNC_USER=${VNC_USER}" >> $GITHUB_ENV
           echo "VNC_PASS=${VNC_PASS}" >> $GITHUB_ENV
 
-          # DÜZELTME: Parolayı komuta doğrudan vermek yerine pipe ile yönlendiriyoruz.
-          echo "$VNC_PASS" | sudo dscl . -passwd /Users/$VNC_USER
+          # BU KOMUT KESİN ÇÖZÜMDÜR:
+          # sysadminctl, eski parola sormadan şifreyi sıfırlayan modern bir Apple aracıdır.
+          sudo sysadminctl -resetPasswordFor $VNC_USER -newPassword "$VNC_PASS"
           
-          echo "Password set for user '$VNC_USER'."
+          echo "Password for user '$VNC_USER' has been reset successfully."
 
-      - name: Enable VNC (Screen Sharing) for Runner User
+      # ADIM 2: VNC (Ekran Paylaşımı) servisini etkinleştir
+      - name: Enable VNC for Runner User
         run: |
           sudo /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart \
               -activate -configure -access -on \
@@ -28,12 +33,14 @@ jobs:
               -restart -agent -menu
           echo "VNC service enabled for user '${{ env.VNC_USER }}'."
 
+      # ADIM 3: Tailscale'i kur ve başlat
       - name: Install and Start Tailscale
         run: |
           brew install tailscale
           sudo brew services start tailscale
           sudo tailscale up --authkey=${{ secrets.TAILSCALE_AUTH_KEY }} --hostname=gh-runner-macos-${{ github.run_id }} --accept-routes
 
+      # ADIM 4: Tailscale IP adresini al
       - name: Get Tailscale IP
         run: |
           TS_IP=""
@@ -54,17 +61,20 @@ jobs:
           
           echo "TAILSCALE_IP=$TS_IP" >> $GITHUB_ENV
 
-      - name: Maintain Connection
+      # ADIM 5: Bağlantıyı aktif tut ve bilgileri göster
+      - name: Maintain Connection and Show Details
         run: |
           echo ""
-          echo "=== VNC CONNECTION DETAILS ==="
-          echo "Server Address: ${{ env.TAILSCALE_IP }}"
-          echo "Username      : ${{ env.VNC_USER }}"
-          echo "Password      : ${{ env.VNC_PASS }}"
+          echo "==============================="
+          echo "=== VNC BAĞLANTI BİLGİLERİ ==="
+          echo "==============================="
+          echo "Sunucu Adresi : ${{ env.TAILSCALE_IP }}"
+          echo "Kullanıcı Adı : ${{ env.VNC_USER }}"
+          echo "Şifre         : ${{ env.VNC_PASS }}"
           echo "==============================="
           echo ""
           
           while true; do
-            echo "[$(date)] VNC session is active. Cancel the workflow to terminate."
+            echo "[$(date)] VNC oturumu aktif. Sonlandırmak için iş akışını iptal edin."
             sleep 300
           done
