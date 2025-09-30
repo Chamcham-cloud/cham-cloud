@@ -7,21 +7,19 @@ jobs:
     timeout-minutes: 360
 
     steps:
-      # ADIM 1: Yeni kullanıcı oluşturma adımını kaldırdık.
-      # Bunun yerine mevcut 'runner' kullanıcısı için bir şifre belirliyoruz.
       - name: Set VNC Password for Existing Runner User
         run: |
-          VNC_USER="runner" # Mevcut kullanıcıyı kullanıyoruz
+          VNC_USER="runner"
           VNC_PASS=$(openssl rand -base64 16)
           
           echo "VNC_USER=${VNC_USER}" >> $GITHUB_ENV
           echo "VNC_PASS=${VNC_PASS}" >> $GITHUB_ENV
 
-          # Mevcut 'runner' kullanıcısının şifresini ayarla
-          sudo dscl . -passwd /Users/$VNC_USER "$VNC_PASS"
+          # DÜZELTME: Parolayı komuta doğrudan vermek yerine pipe ile yönlendiriyoruz.
+          echo "$VNC_PASS" | sudo dscl . -passwd /Users/$VNC_USER
+          
           echo "Password set for user '$VNC_USER'."
 
-      # ADIM 2: VNC'yi 'runner' kullanıcısı için etkinleştiriyoruz.
       - name: Enable VNC (Screen Sharing) for Runner User
         run: |
           sudo /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart \
@@ -61,7 +59,7 @@ jobs:
           echo ""
           echo "=== VNC CONNECTION DETAILS ==="
           echo "Server Address: ${{ env.TAILSCALE_IP }}"
-          echo "Username      : ${{ env.VNC_USER }}" # Artık 'runner' kullanılacak
+          echo "Username      : ${{ env.VNC_USER }}"
           echo "Password      : ${{ env.VNC_PASS }}"
           echo "==============================="
           echo ""
