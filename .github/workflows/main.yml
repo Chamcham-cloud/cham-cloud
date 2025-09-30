@@ -16,7 +16,6 @@ jobs:
           
           # 2. Yeni Kullanıcı Oluşturma
           USERNAME="RDP"
-          # GÜVENLİK DÜZELTMESİ: macOS'un kabul edeceği güçlü şifre
           PASSWORD="Ehe.1234" 
           
           echo "Setting up user '$USERNAME' with password '$PASSWORD'."
@@ -24,7 +23,7 @@ jobs:
           LAST_ID=$(dscl . list /Users UniqueID | awk '{print $2}' | sort -n | tail -1)
           NEW_ID=$((LAST_ID + 1))
           
-          # Kullanıcıyı oluşturma ve gerekli ayarları yapma
+          # Kullanıcıyı oluşturma
           sudo dscl . create /Users/$USERNAME
           sudo dscl . create /Users/$USERNAME UniqueID $NEW_ID
           sudo dscl . create /Users/$USERNAME PrimaryGroupID 20
@@ -58,7 +57,6 @@ jobs:
 
           # Servisi başlat
           echo "Starting tailscaled service..."
-          # Servisi arka planda çalıştırmak için 'sudo' ile çağır
           sudo tailscaled &
           
           sleep 5
@@ -71,7 +69,6 @@ jobs:
           export PATH="/usr/local/bin:$PATH"
           
           echo "Connecting to Tailscale network..."
-          # Servis çalıştığı için '&' kullanmaya gerek yok.
           tailscale up --authkey=${{ secrets.TAILSCALE_AUTH_KEY }} --hostname=gh-macos-runner-$GITHUB_RUN_ID
           
           # Tailscale IP almasını bekleme
@@ -79,3 +76,40 @@ jobs:
           echo "Waiting for Tailscale IP assignment..."
           for i in {1..15}; do
               TS_IP=$(tailscale ip -4 2>/dev/null)
+              if [ -n "$TS_IP" ]; then
+                  break
+              fi
+              sleep 4
+          done
+          
+          if [ -z "$TS_IP" ]; then
+              echo "Tailscale IP adresi alınamadı. İşlem başarısız."
+              tailscale status
+              exit 1
+          fi
+          
+          # IP adresini diğer adımlara aktar
+          echo "TAILSCALE_IP=$TS_IP" >> $GITHUB_ENV
+      
+      - name: Maintain Connection and Display Info
+        run: |
+          echo "
+          
+          ==================================
+              MAC İÇİN UZAK SSH ERİŞİMİ
+          ==================================
+          
+          Adres (Tailscale IP): $TAILSCALE_IP
+          Kullanıcı Adı: RDP
+          Şifre: Ehe.1234
+          
+          BAĞLANTI KOMUTU:
+          ssh RDP@$TAILSCALE_IP
+          
+          ==================================
+          "
+          # Çalıştırıcıyı aktif tutmak için uzun süre döngüde kal
+          while true; do
+              echo "[$(date)] SSH Erişimi Aktif. İş akışını sonlandırmak için manuel olarak iptal edin."
+              sleep 300
+          done
