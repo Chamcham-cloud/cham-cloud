@@ -39,44 +39,42 @@ jobs:
           
           brew install tiger-vnc
           
-          # 3. VNC dosyalarını bulma ve kopyalama (KRİTİK DÜZELTME)
+          # KRİTİK DÜZELTME: Dosyaların PATH'te görünmesi için zorla bağla (symlink oluştur)
+          echo "Forcing Homebrew to link VNC binaries to /opt/homebrew/bin..."
+          brew link tiger-vnc
+          
+          # 3. VNC dosyalarını bulma ve kopyalama
           USER_BIN_PATH="/usr/local/bin" 
+          HOMEBREW_BIN_PATH="/opt/homebrew/bin"
           
           echo "Determining VNC binary paths for reliable execution..."
-
-          # Cellar yolunu bulma (Örn: /opt/homebrew/Cellar/tiger-vnc/1.15.0/bin)
-          TIGER_VNC_BIN_DIR=$(find /opt/homebrew/Cellar/tiger-vnc/ -maxdepth 2 -type d -name "bin" | head -n 1)
-
-          # Hangi yoldan kopyalama yapılacağını belirle: 1. Cellar, 2. Homebrew bin (fallback)
-          if [ -d "$TIGER_VNC_BIN_DIR" ] && [ -f "$TIGER_VNC_BIN_DIR/vncpasswd" ]; then
-              SOURCE_PATH="$TIGER_VNC_BIN_DIR"
-              echo "Source path (Cellar) found: $SOURCE_PATH"
-          elif [ -f "/opt/homebrew/bin/vncpasswd" ]; then
-              SOURCE_PATH="/opt/homebrew/bin"
-              echo "Source path (Homebrew bin) found: $SOURCE_PATH"
+          
+          # brew link başarılıysa, dosyalar burada olacaktır.
+          SOURCE_PATH="$HOMEBREW_BIN_PATH"
+          
+          # Kontrol: Eğer dosya Homebrew bin'de artık varsa kopyala.
+          if [ -f "$SOURCE_PATH/vncpasswd" ]; then
+              echo "VNC binaries found at: $SOURCE_PATH. Copying to $USER_BIN_PATH..."
+              # Dosyaları /usr/local/bin'e kopyala (İzin sorununu çözer)
+              sudo cp $SOURCE_PATH/vncpasswd $USER_BIN_PATH/
+              sudo cp $SOURCE_PATH/Xvnc $USER_BIN_PATH/
+              
+              # Çalıştırılacak komutlar artık /usr/local/bin altında
+              VNCPASSWD_CMD="$USER_BIN_PATH/vncpasswd"
+              XVNC_CMD="$USER_BIN_PATH/Xvnc"
+              
+              # Dosyaların çalıştırılabilir olduğundan emin ol
+              sudo chmod +x $USER_BIN_PATH/vncpasswd
+              sudo chmod +x $USER_BIN_PATH/Xvnc
           else
-              echo "HATA: VNC ikili dosyaları için güvenilir kaynak bulunamadı. Kurulumu kontrol edin."
+              echo "HATA: VNC ikili dosyaları /opt/homebrew/bin'de bulunamadı. İşlem durduruluyor."
               exit 1
           fi
-          
-          echo "Copying VNC binaries from $SOURCE_PATH to $USER_BIN_PATH..."
-          
-          # Dosyaları /usr/local/bin'e kopyala (İzin/PATH sorununu çözer)
-          sudo cp $SOURCE_PATH/vncpasswd $USER_BIN_PATH/
-          sudo cp $SOURCE_PATH/Xvnc $USER_BIN_PATH/
-          
-          # Dosyaların çalıştırılabilir olduğundan emin ol
-          sudo chmod +x $USER_BIN_PATH/vncpasswd
-          sudo chmod +x $USER_BIN_PATH/Xvnc
-
-          # Komutlar artık /usr/local/bin altında
-          VNCPASSWD_CMD="$USER_BIN_PATH/vncpasswd"
-          XVNC_CMD="$USER_BIN_PATH/Xvnc"
           
           # 4. VNC şifresini ayarlar
           echo "Setting VNC password file for $USERNAME."
           
-          # RDP kullanıcısı altında vncpasswd komutunu çalıştır (PATH sorunu yok)
+          # RDP kullanıcısı altında vncpasswd komutunu çalıştır
           sudo su - $USERNAME -c "
             mkdir -p ~/.vnc
             echo '$PASSWORD' | $VNCPASSWD_CMD -f > ~/.vnc/passwd
@@ -86,7 +84,7 @@ jobs:
           # 5. TigerVNC Sunucusunu Başlatma
           echo "Starting TigerVNC server on display :1 (port 5901)."
           
-          # RDP kullanıcısı altında Xvnc komutunu başlat (PATH/İzin sorunu yok)
+          # RDP kullanıcısı altında Xvnc komutunu başlat
           sudo su - $USERNAME -c "
             $XVNC_CMD :1 -geometry 1920x1080 -depth 24 -rfbauth /Users/$USERNAME/.vnc/passwd -desktop 'GitHub Runner' &
           "
